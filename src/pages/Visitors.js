@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { getAllVisitors, createVisitor, approveVisitor, deleteVisitor, getAllUsers } from '../services/api';
+import { getAllVisitors, createVisitor, approveVisitor, deleteVisitor, getAllUsers, downloadPDF } from '../services/api';
 
 const Visitors = ({ user }) => {
     const [visitors, setVisitors] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [showForm, setShowForm] = useState(false);
+    const [selectedVisitor, setSelectedVisitor] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [photo, setPhoto] = useState(null);
+    const [photoPreview, setPhotoPreview] = useState(null);
     const [formData, setFormData] = useState({
         name: '', email: '', phone: '', company: '', purpose: '', host: '', expectedDate: ''
     });
@@ -13,6 +16,7 @@ const Visitors = ({ user }) => {
     useEffect(() => {
         fetchVisitors();
         if (user.role === 'admin') fetchEmployees();
+        // eslint-disable-next-line
     }, []);
 
     const fetchVisitors = async () => {
@@ -39,15 +43,39 @@ const Visitors = ({ user }) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
+    const handlePhotoChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setPhoto(file);
+            setPhotoPreview(URL.createObjectURL(file));
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            const data = { ...formData };
+            const data = new FormData();
+            data.append('name', formData.name);
+            data.append('email', formData.email);
+            data.append('phone', formData.phone);
+            data.append('company', formData.company);
+            data.append('purpose', formData.purpose);
+            data.append('expectedDate', formData.expectedDate);
+
             if (user.role === 'employee') {
-                data.host = user._id;
+                data.append('host', user._id);
+            } else {
+                data.append('host', formData.host);
             }
+
+            if (photo) {
+                data.append('photo', photo);
+            }
+
             await createVisitor(data);
             setFormData({ name: '', email: '', phone: '', company: '', purpose: '', host: '', expectedDate: '' });
+            setPhoto(null);
+            setPhotoPreview(null);
             setShowForm(false);
             fetchVisitors();
         } catch (error) {
@@ -72,6 +100,22 @@ const Visitors = ({ user }) => {
             } catch (error) {
                 alert(error.response?.data?.message || 'Error deleting visitor');
             }
+        }
+    };
+
+    const handleDownloadPDF = async (id, name) => {
+        try {
+            const res = await downloadPDF(id);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `visitor-pass-${name}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            alert('Error downloading PDF');
         }
     };
 
@@ -131,8 +175,53 @@ const Visitors = ({ user }) => {
                                 </select>
                             </div>
                         )}
+                        <div className="form-group">
+                            <label>Visitor Photo</label>
+                            <input type="file" accept="image/jpeg,image/png,image/jpg" onChange={handlePhotoChange} className="file-input" />
+                            {photoPreview && (
+                                <div className="photo-preview">
+                                    <img src={photoPreview} alt="Preview" />
+                                    <button type="button" className="btn-remove-photo" onClick={() => { setPhoto(null); setPhotoPreview(null); }}>✕ Remove</button>
+                                </div>
+                            )}
+                        </div>
                         <button type="submit" className="btn-primary">Register Visitor</button>
                     </form>
+                </div>
+            )}
+
+            {/* QR Code Modal */}
+            {selectedVisitor && (
+                <div className="modal-overlay" onClick={() => setSelectedVisitor(null)}>
+                    <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3>Visitor Pass</h3>
+                            <button className="btn-close" onClick={() => setSelectedVisitor(null)}>✕</button>
+                        </div>
+                        <div className="pass-card">
+                            {selectedVisitor.photo && (
+                                <div className="pass-photo">
+                                    <img src={`https://visitor-pass-backend-azj3.onrender.com/uploads/${selectedVisitor.photo}`} alt="Visitor" />
+                                </div>
+                            )}
+                            <h2>{selectedVisitor.name}</h2>
+                            <p><strong>Company:</strong> {selectedVisitor.company || '-'}</p>
+                            <p><strong>Purpose:</strong> {selectedVisitor.purpose}</p>
+                            <p><strong>Host:</strong> {selectedVisitor.host?.name || '-'}</p>
+                            <p><strong>Date:</strong> {new Date(selectedVisitor.expectedDate).toLocaleDateString()}</p>
+                            <p><strong>Status:</strong> <span className={`status-badge ${selectedVisitor.status}`}>{selectedVisitor.status}</span></p>
+                            <p><strong>Pass Code:</strong> <code className="passcode">{selectedVisitor.passCode}</code></p>
+                            {selectedVisitor.qrCode && (
+                                <div className="qr-section">
+                                    <img src={selectedVisitor.qrCode} alt="QR Code" className="qr-image" />
+                                    <p className="qr-label">Scan this QR Code</p>
+                                </div>
+                            )}
+                            <button className="btn-pdf" onClick={() => handleDownloadPDF(selectedVisitor._id, selectedVisitor.name)}>
+                                📄 Download PDF Badge
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -143,12 +232,14 @@ const Visitors = ({ user }) => {
                     <table>
                         <thead>
                             <tr>
+                                <th>Photo</th>
                                 <th>Name</th>
                                 <th>Phone</th>
                                 <th>Company</th>
                                 <th>Purpose</th>
                                 <th>Host</th>
                                 <th>Status</th>
+                                <th>Pass Code</th>
                                 <th>Date</th>
                                 <th>Actions</th>
                             </tr>
@@ -156,6 +247,13 @@ const Visitors = ({ user }) => {
                         <tbody>
                             {visitors.map((visitor) => (
                                 <tr key={visitor._id}>
+                                    <td>
+                                        {visitor.photo ? (
+                                            <img src={`https://visitor-pass-backend-azj3.onrender.com/uploads/${visitor.photo}`} alt="Visitor" className="table-photo" />
+                                        ) : (
+                                            <div className="no-photo">👤</div>
+                                        )}
+                                    </td>
                                     <td>{visitor.name}</td>
                                     <td>{visitor.phone}</td>
                                     <td>{visitor.company || '-'}</td>
@@ -166,8 +264,10 @@ const Visitors = ({ user }) => {
                                             {visitor.status}
                                         </span>
                                     </td>
+                                    <td><code className="passcode">{visitor.passCode}</code></td>
                                     <td>{new Date(visitor.expectedDate).toLocaleDateString()}</td>
                                     <td className="actions">
+                                        <button className="btn-view" onClick={() => setSelectedVisitor(visitor)}>📋 Pass</button>
                                         {visitor.status === 'pending' && (user.role === 'admin' || user.role === 'employee') && (
                                             <button className="btn-approve" onClick={() => handleApprove(visitor._id)}>✓ Approve</button>
                                         )}
