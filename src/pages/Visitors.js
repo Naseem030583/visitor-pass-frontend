@@ -119,6 +119,13 @@ const Visitors = ({ user }) => {
         }
     };
 
+    // Helper to check if photo is a base64 string
+    const getPhotoSrc = (photoData) => {
+        if (!photoData) return null;
+        if (photoData.startsWith('data:image')) return photoData;
+        return null;
+    };
+
     if (loading) return <div className="loading">Loading Visitors...</div>;
 
     return (
@@ -199,9 +206,9 @@ const Visitors = ({ user }) => {
                             <button className="btn-close" onClick={() => setSelectedVisitor(null)}>✕</button>
                         </div>
                         <div className="pass-card">
-                            {selectedVisitor.photo && (
+                            {getPhotoSrc(selectedVisitor.photo) && (
                                 <div className="pass-photo">
-                                    <img src={`https://visitor-pass-backend-azj3.onrender.com/uploads/${selectedVisitor.photo}`} alt="Visitor" />
+                                    <img src={getPhotoSrc(selectedVisitor.photo)} alt="Visitor" />
                                 </div>
                             )}
                             <h2>{selectedVisitor.name}</h2>
@@ -248,8 +255,8 @@ const Visitors = ({ user }) => {
                             {visitors.map((visitor) => (
                                 <tr key={visitor._id}>
                                     <td>
-                                        {visitor.photo ? (
-                                            <img src={`https://visitor-pass-backend-azj3.onrender.com/uploads/${visitor.photo}`} alt="Visitor" className="table-photo" />
+                                        {getPhotoSrc(visitor.photo) ? (
+                                            <img src={getPhotoSrc(visitor.photo)} alt="Visitor" className="table-photo" />
                                         ) : (
                                             <div className="no-photo">👤</div>
                                         )}
